@@ -1,0 +1,16 @@
+[Unit]
+Description=Grow partition and file system size of %I
+DefaultDependencies=no
+BindsTo=%i.mount
+Conflicts=shutdown.target
+After=%i.mount
+Before=shutdown.target local-fs.target
+
+# growpart requires /tmp to operate
+Requires=tmp.mount
+After=tmp.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/partgrow %i

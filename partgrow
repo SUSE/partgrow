@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# helper script to increase a mount point's partition and file system size
+# Copyright (C) 2019  SUSE LLC
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+ret=0
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <mount point, escaped by systemd-escape>"
+  exit 1
+fi
+
+mnttarget_esc="$1" # escaped by systemd-escape
+mnttarget="$(systemd-escape --unescape --path "${mnttarget_esc}")"
+mntsource="$(systemctl show --property=What ${mnttarget_esc}.mount | cut -d = -f 2-)"
+
+if [ -z "${mntsource}" ]; then
+  echo "ERROR: ${mnttarget} is not an active systemd mount unit."
+  exit 1
+fi
+
+# growpart needs the device and the partition number separately, so find them
+# out (also handling devices like /dev/mmcblk0p2, where the partition number
+# is not just appended to the device).
+parentdev="/dev/$(lsblk -no pkname "${mntsource}")"
+partnum="$(udevadm info --query=property "${mntsource}" | grep '^PARTN=' | cut -d = -f 2-)"
+
+if [ -z "${partnum}" ]; then
+  echo "ERROR: ${mntsource} is not a partition and cannot be resized."
+  exit 1
+fi
+
+/usr/sbin/growpart "${parentdev}" "${partnum}" || ret=$?
+# growpart will return 1 if it didn't do any changes - this is ok.
+if [ $ret -ne 0 -a $ret -ne 1 ]; then
+  exit $ret
+fi
+
+/usr/lib/systemd/systemd-growfs "${mnttarget}"
